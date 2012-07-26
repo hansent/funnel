@@ -18,6 +18,7 @@ tornado:
     #log_file_prefix :  'tornado.log'
 
 Application:
+    debug: false
     static_path : 'static'
     static_url_prefix : '/static/'
     template_path:  'templates'
@@ -54,6 +55,7 @@ class RouteList(list):
     def add_route(self, pattern, handler, kwargs={}, name=None):
         if isinstance(handler, basestring):
             handler = tornado.util.import_object(handler)
+        pattern = self._prefix + pattern
         route_name = name or handler.__name__
         url_spec = URLRoute(pattern, handler, kwargs, route_name)
         self.append(url_spec)
