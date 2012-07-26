@@ -1,31 +1,14 @@
+import datetime
 import sqlalchemy
 from sqlalchemy import create_engine, Column
+from sqlalchemy.orm import scoped_session, sessionmaker, object_mapper
+from sqlalchemy.orm.properties import ColumnProperty, RelationshipProperty
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
-from sqlalchemy.orm import scoped_session, sessionmaker
-
-
-class cached_property(object):
-    def __init__(self, fget, doc=None):
-        self.fget = fget
-        self.__doc__ = doc or fget.__doc__
-        self.__name__ = fget.__name__
-        self.__module__ = fget.__module__
-
-    def __get__(self, obj, cls):
-        if obj is None:
-            return self
-        setattr(obj, self.__name__, self.fget(obj))
-        return getattr(obj, self.__name__)
-
-
-class cached_classproperty(cached_property):
-    def __get__(self, obj, cls):
-        setattr(cls, self.__name__, self.fget(cls))
-        return getattr(cls, self.__name__)
+from funnel.util import cached_property, cached_classproperty
 
 
 class DataBase(object):
-    def __init__(self, uri='sqlite:////tmp/test.db', echo=True):
+    def __init__(self, uri='sqlite:////tmp/test.db', echo=False):
         self.engine = create_engine(uri, echo=echo, convert_unicode=True)
         self.Model = declarative_base(bind=self.engine, cls=ModelBase)
         self.Model.DB = self
@@ -47,48 +30,92 @@ class DataBase(object):
     def drop_all(self):
         self.Model.metadata.drop_all()
 
+    def many_to_many(self, table_name, table1, table2):
+        col1, col2 = "%s_id" % table1, "%s_id" % table2
+        key1, key2 = "%s.id" % table1, "%s.id" % table2
+        return sqlalchemy.Table(table_name, self.Model.metadata,
+            Column(col1, sqlalchemy.Integer, sqlalchemy.ForeignKey(key1)),
+            Column(col2, sqlalchemy.Integer, sqlalchemy.ForeignKey(key2))
+        )
+
 
 class ModelBase(object):
     id =  Column(sqlalchemy.Integer, primary_key=True)
+    created_at = Column(sqlalchemy.DateTime, default=datetime.datetime.now)
 
     @declared_attr
     def __tablename__(cls):
         return cls.__name__.lower()
 
     @cached_classproperty
+    def property_names(cls):
+        return [k for k in cls._sa_class_manager]
+
+    @cached_classproperty
     def query(cls):
         return cls.DB.session.query_property()
 
-    def __repr__(self):
-        return "<%s id=%s>" % (self.__class__.__name__, self.id)
+    @classmethod
+    def get(cls, uid):
+        return cls.query.get(uid)
 
-    def delete(self, commit=False, session=None):
-        session = session or self.DB.session
-        session.delete(self)
-        if commit:
-            self.DB.session.commit()
+    @classmethod
+    def get_by_id(cls, uid):
+        return cls.query.get(int(uid))
 
-    def put(self, commit=False, session=None):
+    @classmethod
+    def find_one(cls, **kwargs):
+        return cls.query.filter_by(**kwargs).first()
+
+    @classmethod
+    def find_all(cls, **kwargs):
+        return cls.query.filter_by(**kwargs).all()
+
+    def put(self, commit=True, session=None):
         session = session or self.DB.session
         session.add(self)
         if commit:
             self.DB.session.commit()
         return self
 
+    def delete(self, commit=True, session=None):
+        session = session or self.DB.session
+        session.delete(self)
+        if commit:
+            self.DB.session.commit()
 
-class StringUTF8(sqlalchemy.TypeDecorator):
-    impl = sqlalchemy.Unicode
-    def process_bind_param(self, value, dialect):
-        if isinstance(value, str):
-            value = value.decode('utf-8')
-        return value
+    def to_dict(self, follow_rel=1, exclude=None):
+        result = {}
+        exclude = exclude or ()
+        mapper = object_mapper(self)
+        for prop in mapper.iterate_properties:
+            if prop.key in exclude:
+                continue
+            if isinstance(prop, ColumnProperty):
+                result[prop.key] = getattr(self, prop.key)
+                continue
+            if follow_rel and isinstance(prop, RelationshipProperty):
+                rel = result[prop.key] = getattr(self, prop.key)
+                if rel == None:
+                    continue
+                _follow = max(int(follow_rel - 1),0)
+                _exclude = (key.name for key in prop.remote_side)
+                if isinstance(rel, list):
+                    rel_list = [r.to_dict(_follow, _exclude) for r in rel]
+                    result[prop.key] = rel_list
+                else:
+                    result[prop.key] = rel.to_dict(_follow, _exclude)
+        return result
 
-class TextUTF8(sqlalchemy.TypeDecorator):
-    impl = sqlalchemy.UnicodeText
-    def process_bind_param(self, value, dialect):
-        if isinstance(value, str):
-            value = value.decode('utf-8')
-        return value
+    def __jsonic__(self):
+        return self.to_dict()
+
+    def __repr__(self):
+        return "<%s id=%s>" % (self.__class__.__name__, self.id)
+
+
+
+
 
 def BooleanColumn(**kwargs):
     return Column(sqlalchemy.Boolean, **kwargs)
@@ -116,4 +143,24 @@ def TextColumn(**kwargs):
 def TimeColumn(**kwargs):
     length = kwargs.pop('length', None)
     return Column(sqlalchemy.String(length), **kwargs)
+
+def ForeignKey(fkey):
+    return Column(sqlalchemy.Integer, sqlalchemy.ForeignKey(fkey))
+
+def Relationship(*args, **kwargs):
+    return sqlalchemy.orm.relationship(*args, **kwargs)
+
+class StringUTF8(sqlalchemy.TypeDecorator):
+    impl = sqlalchemy.Unicode
+    def process_bind_param(self, value, dialect):
+        if isinstance(value, str):
+            value = value.decode('utf-8')
+        return value
+
+class TextUTF8(sqlalchemy.TypeDecorator):
+    impl = sqlalchemy.UnicodeText
+    def process_bind_param(self, value, dialect):
+        if isinstance(value, str):
+            value = value.decode('utf-8')
+        return value
 

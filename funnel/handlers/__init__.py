@@ -6,6 +6,7 @@ import urlparse
 import tornado.web
 from lepl.apps import rfc3696
 from types import FunctionType
+from funnel.util import JSONEncoder
 
 
 log = logging.getLogger()
@@ -107,7 +108,7 @@ class BaseHandler(tornado.web.RequestHandler):
             if self.login_required:
                 self._verify_login()
 
-            #call prepare regardless of HTTP method for common initialization
+            #call prepare regardless of HTTP method for ctHommon initialization
             if not self._finished:
                 self.prepare()
 
@@ -122,13 +123,30 @@ class BaseHandler(tornado.web.RequestHandler):
                 self.setup(*args, **kwargs)
                 #call actual handler function fro http method used
                 method = getattr(self, self.request.method.lower())
-                method(*args, **kwargs)
+                response_data = method(*args, **kwargs)
+                if response_data != None:
+                    self.write_response(response_data)
 
                 if self._auto_finish and not self._finished:
                     self.finish()
 
         except Exception, e:
             self._handle_request_exception(e)
+
+    def write_response(self, response):
+        if isinstance(response, unicode):
+            self.write(response)
+        else:
+            self.write_json(response)
+
+    def write_json(self, data):
+        self.set_header("Content-Type", "application/json; charset=UTF-8")
+        if self.settings['debug']:
+            json_data = json.dumps(data, cls=JSONEncoder, indent=4)
+        else:
+            json_data = json.dumps(data, cls=JSONEncoder)
+        self.write(json_data)
+
 
 
 class BaseView(BaseHandler):
@@ -178,7 +196,7 @@ class LoginHandler(BaseView):
         url_next = self.get_argument('next', self.settings.get('login_home'))
         user = self.application.UserModel.get_by_login(username, password)
         if user:
-          self.set_secure_cookie("user", "%s" % new_user.id)
+          self.set_secure_cookie("user", "%s" % user.id)
           self.redirect(url_next)
         else:
           self.clear_cookie("user")
