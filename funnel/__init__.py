@@ -68,6 +68,8 @@ class RouteList(list):
         for item in iterable:
             if isinstance(item, tornado.web.URLSpec):
                 self.append(item)
+            elif isinstance(item, RouteList):
+                self.extend(item)
             else:
                 self.add_route(*item)
 

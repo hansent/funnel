@@ -1,11 +1,9 @@
 import logging
-import socket
 import json
 import urllib
 import urlparse
 import tornado.web
-from lepl.apps import rfc3696
-from types import FunctionType
+import funnel.util
 
 
 log = logging.getLogger()
@@ -201,8 +199,7 @@ class SignupHandler(BaseView):
         email = self.get_argument("email", "")
         url_next = self.get_argument('next', self.settings.get('login_home'))
 
-        email_validator = rfc3696.Email()
-        if not email_validator(email):
+        if not funnel.util.validate_email(email):
             self.flash_message("invalid email address!")
             self.redirect(self.settings.get('signup_url'))
             return

@@ -1,5 +1,3 @@
-import yaml
-import tornado.httpclient
 
 
 def _merge_dicts_inplace(original, *updates):
@@ -22,6 +20,7 @@ def merge_dicts(original, update, inplace=False):
 
 
 
+import yaml
 class YamlConfig(dict):
 
     def parse_file(self, fname="config.yaml"):
@@ -39,8 +38,16 @@ class YamlConfig(dict):
         return self[name]
 
 
+import tornado.httpclient
 def async_fetch(url, response_callback):
     http_client = tornado.httpclient.AsyncHTTPClient()
     http_client.fetch(url, response_callback)
+
+
+
+from funnel.util.rfc822 import email_address_re
+def validate_email(email):
+    return email_address_re.match(email) != None
+
 
 
